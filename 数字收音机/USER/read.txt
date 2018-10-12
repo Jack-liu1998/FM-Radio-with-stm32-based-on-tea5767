@@ -1,0 +1,130 @@
+
+1、① 定时器触发ADC采样（8K） 
+   ② 开启ADC DMA，DMA传输过半标志中断
+   ③ 传输过半中断中设置标志位     main函数中将一半数据封装成DAC5311格式
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+  * @brief  开启定时器3  定时8K
+  * @param  None
+  * @retval None
+  */
+void TIM3_Int_Init(void)
+{
+    TIM_TimeBaseInitTypeDef  TIM_TimeBaseStructure;
+//    TIM_OCInitTypeDef  TIM_OCInitStructure;
+//    NVIC_InitTypeDef NVIC_InitStructure;
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE); //时钟使能
+	
+	//定时器TIM2初始化
+	TIM_TimeBaseStructure.TIM_Period = 46-1;   //设置为22K
+	TIM_TimeBaseStructure.TIM_Prescaler =72-1; //设置用来作为TIMx时钟频率除数的预分频值
+	TIM_TimeBaseStructure.TIM_ClockDivision = TIM_CKD_DIV1; //设置时钟分割:TDTS = Tck_tim
+	TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;  //TIM向上计数模式
+	TIM_TimeBaseInit(TIM3, &TIM_TimeBaseStructure); //根据指定的参数初始化TIMx的时间基数单位
+    
+//    TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1;
+//    TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Enable;
+//    TIM_OCInitStructure.TIM_Pulse = 100;
+//    TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_High;
+//    TIM_OCInitStructure.TIM_OCIdleState = TIM_OCIdleState_Set;    
+//    TIM_OC3Init(TIM3,&TIM_OCInitStructure);
+//    TIM_OC3PreloadConfig(TIM3, TIM_OCPreload_Enable);
+//    
+//    TIM_OCInitStructure.TIM_Pulse = 50;
+//    TIM_OC4Init(TIM3,&TIM_OCInitStructure);
+//    TIM_OC4PreloadConfig(TIM3, TIM_OCPreload_Enable);
+//    
+//    NVIC_InitStructure.NVIC_IRQChannel = TIM3_IRQn;
+//	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
+//	NVIC_InitStructure.NVIC_IRQChannelSubPriority= 1;  
+//	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+//	NVIC_Init(&NVIC_InitStructure);
+//    
+//    TIM_ITConfig(TIM3, TIM_IT_CC3, ENABLE);
+//    TIM_ITConfig(TIM3, TIM_IT_CC4, ENABLE);
+    
+    TIM_SelectOutputTrigger(TIM3,TIM_TRGOSource_Update);//设置定时器3输出外部触发
+    TIM_SelectMasterSlaveMode(TIM3, TIM_MasterSlaveMode_Enable);
+//    TIM_DMACmd(TIM3,TIM_DMA_Update,ENABLE); //定时器3DMA触发   
+	TIM_Cmd(TIM3, ENABLE);  //使能TIMx					 
+}
+
+void TIM3_IRQHandler(void)
+{   
+    if (TIM_GetITStatus(TIM3, TIM_IT_CC3) != RESET)  //检查TIM2更新中断发生与否
+	{
+        DAC5311_ON;
+        TIM_ClearITPendingBit(TIM3, TIM_IT_CC3  );  //清除TIMx更新中断标志 
+	}
+    
+    if (TIM_GetITStatus(TIM3, TIM_IT_CC4) != RESET)  //检查TIM2更新中断发生与否
+	{
+        DAC5311_OFF;
+        TIM_ClearITPendingBit(TIM3, TIM_IT_CC4  );  //清除TIMx更新中断标志 
+	}
+}
+
+/**
+  * @brief  定时器3外部中断时间触发
+  * @param  None
+  * @retval None
+  */
+static void TIM3_DMA_Mode_Config(void)			  
+{
+	DMA_InitTypeDef DMA_InitStructure;
+	
+	/*---------------------------------DMA----------------------------------*/
+	// ------------------DMA Init 结构体参数 初始化--------------------------
+	// ADC1使用DMA1，数据流0，通道1，这个是手册固定死的
+	// 开启DMA时钟
+	RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE); 
+	// 外设基址为：ADC 数据寄存器地址
+	DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)(&SPI2->DR);
+	// 存储器地址，实际上就是一个内部SRAM的变量	
+	DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)VOICE_BUFF_DAC5311;  
+	// 数据传输方向为外设到存储器	
+	DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;	
+	// 缓冲区大小为，指一次传输的数据量
+	DMA_InitStructure.DMA_BufferSize = VOICE_BUFF_TRANS;	
+	// 外设寄存器只有一个，地址不用递增
+	DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+	// 存储器地址固定
+	DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable; 
+	// // 外设数据大小为半字，即两个字节 
+	DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_HalfWord; 
+	//	存储器数据大小也为半字，跟外设数据大小相同
+	DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_HalfWord;	
+	// 循环传输模式
+	DMA_InitStructure.DMA_Mode = DMA_Mode_Circular;
+	// DMA 传输通道优先级为高，当使用一个DMA通道时，优先级设置不影响
+	DMA_InitStructure.DMA_Priority = DMA_Priority_High;
+	DMA_InitStructure.DMA_M2M = DMA_M2M_Disable;
+	
+	//初始化DMA流，流相当于一个大的管道，管道里面有很多通道
+	DMA_Init(DMA1_Channel3, &DMA_InitStructure);
+//    DMA_ITConfig(DMA1_Channel6,DMA_IT_TC,ENABLE);//开启DMA1通道1传输完成中断
+	// 使能DMA流
+	DMA_Cmd(DMA1_Channel3, ENABLE);
+}
+
+
+
+
+
+
+
+
